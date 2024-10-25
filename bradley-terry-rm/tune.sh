@@ -1,1 +1,1 @@
-python gemma_2B_rm.py --model_name google/gemma-2b-it
+python llmjp_1B_rm.py --model_name microsoft/Phi-3.5-mini-instruct --dataset_size 0.25 --project RM-waka --name waka-2B-100k

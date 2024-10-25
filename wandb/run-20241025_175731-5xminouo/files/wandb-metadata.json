@@ -1,0 +1,150 @@
+{
+    "os": "Linux-5.15.153.1-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+    "python": "3.10.12",
+    "heartbeatAt": "2024-10-25T08:57:31.853307",
+    "startedAt": "2024-10-25T08:57:31.188312",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "/home/ryota39/ws/RLHF-Reward-Modeling/bradley-terry-rm/llmjp_1B_rm.py",
+    "codePathLocal": "bradley-terry-rm/llmjp_1B_rm.py",
+    "codePath": "bradley-terry-rm/llmjp_1B_rm.py",
+    "git": {
+        "remote": "https://github.com/ohashi3399/RLHF-Reward-Modeling.git",
+        "commit": "50034de79627fa374e585263af877bea14d5eb76"
+    },
+    "email": "rspeech3399@gmail.com",
+    "root": "/home/ryota39/ws/RLHF-Reward-Modeling",
+    "host": "MSI",
+    "username": "ryota39",
+    "executable": "/usr/bin/python3",
+    "cpu_count": 11,
+    "cpu_count_logical": 22,
+    "cpu_freq": {
+        "current": 2995.199999999999,
+        "min": 0.0,
+        "max": 0.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        },
+        {
+            "current": 2995.2,
+            "min": 0.0,
+            "max": 0.0
+        }
+    ],
+    "disk": {
+        "/": {
+            "total": 1006.853931427002,
+            "used": 66.12465286254883
+        }
+    },
+    "memory": {
+        "total": 15.470649719238281
+    }
+}

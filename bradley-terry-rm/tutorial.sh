@@ -1,0 +1,1 @@
+python gemma_2B_rm.py --model_name google/gemma-2b-it
