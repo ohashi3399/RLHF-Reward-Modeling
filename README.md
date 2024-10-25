@@ -8,12 +8,12 @@
 # Support
 
 |model|support|
-|:---|:---|
+|:---|:---:|
 |[google/gemma-2b-it](https://huggingface.co/google/gemma-2b-it)|✅|
 |[llm-jp/llm-jp-3-1.8b-instruct](https://huggingface.co/llm-jp/llm-jp-3-1.8b-instruct)|✅|
 
 |dataset|support|
-|:---|:---|
+|:---|:---:|
 |[hendrydong/preference_700K](https://huggingface.co/datasets/hendrydong/preference_700K)|✅|
 |xxxx|-|
 
