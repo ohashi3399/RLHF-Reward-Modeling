@@ -17,8 +17,5 @@ git clone https://github.com/ohashi3399/RLHF-Reward-Modeling.git && cd RLHF-Rewa
 source setup.sh && cd bradley-terry-rm
 export HUGGINGFACE_API_KEY=xxxx
 export WANDB_API_KEY=xxxx
-```
-
-```sh
 source tune.sh
 ```
