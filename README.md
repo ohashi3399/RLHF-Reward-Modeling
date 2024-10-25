@@ -5,6 +5,18 @@
   - support [Unsloth](https://github.com/unslothai/unsloth), which reduce VRAM when training and accelerte training efficiency
   - support wandb
 
+# Support
+
+|model|support|
+|:---|:---|
+|google/gemma-2b-it|✅|
+|llm-jp/llm-jp-3-1.8b-instruct|✅|
+
+|dataset|support|
+|:---|:---|
+|hendrydong/preference_700K|✅|
+|xxxx|-|
+
 # Environment setup
 
 ```sh
