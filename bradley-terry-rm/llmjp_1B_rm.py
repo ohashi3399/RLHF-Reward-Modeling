@@ -6,22 +6,18 @@ from huggingface_hub import login
 from datasets import load_dataset
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
-
-from unsloth import FastLanguageModel
-
-# from unsloth import is_bfloat16_supported
+from unsloth import FastLanguageModel, is_bfloat16_supported
 
 # from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (
-    AutoModelForSequenceClassification,
+    # AutoModelForSequenceClassification,
     AutoTokenizer,
     HfArgumentParser,
     Trainer,
     TrainingArguments,
 )
 from transformers.utils import PaddingStrategy
-
-# from utils import count_parameters
+from utils import count_parameters
 
 
 # 外部引数の受取
@@ -35,7 +31,7 @@ class ScriptArguments:
     dataset_name: Optional[str] = field(default="hendrydong/preference_700K")
     num_eval: Optional[int] = field(default=1000)
     # ハイパーパラメータ
-    radom_state: Optional[int] = field(default=42)
+    random_state: Optional[int] = field(default=42)
     per_device_train_batch_size: Optional[int] = field(default=1)
     per_device_eval_batch_size: Optional[int] = field(default=1)
     gradient_accumulation_steps: Optional[int] = field(default=256)
@@ -58,6 +54,7 @@ class ScriptArguments:
     save_total_limit: Optional[int] = field(default=3)
     load_best_model_at_end: Optional[bool] = field(default=True)
     log_dir: Optional[str] = field(default="./log")
+    remove_unused_columns: Optional[bool] = field(default=False)
     report_to: Optional[str] = field(default="wandb")
     # wandb設定
     project: Optional[str] = field(default="YOU FORGOT PROJECT!!!")
@@ -72,22 +69,17 @@ wandb.init(project=args.project, name=args.name)
 wandb.login(os.environ.get("WANDB_API_KEY"))
 login(os.environ.get("HUGGINGFACE_API_KEY"), add_to_git_credential=False)
 
-# model = AutoModelForSequenceClassification.from_pretrained(
-#     args.model_name,
-#     num_labels=1,
-#     torch_dtype=torch.bfloat16,
-# )
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name=args.model_name,
     max_seq_length=args.max_seq_length,
     dtype=torch.bfloat16,
     load_in_4bit=False,
 )
-print(model)
-hidden_size = model.config.hidden_size
-model.classifier = nn.Linear(hidden_size, args.num_labels)
+hidden_size = model.lm_head.in_features
+model.lm_head = nn.Linear(hidden_size, args.num_labels)
 model.config.use_cache = not args.gradient_checkpointing
-# count_parameters(model)
+print(model)
+count_parameters(model)
 
 
 # 右URL先のフォーマットのみに対応(https://huggingface.co/datasets/hendrydong/preference_700K)
@@ -152,6 +144,7 @@ training_args = TrainingArguments(
     lr_scheduler_type=args.lr_scheduler_type,
     load_best_model_at_end=args.load_best_model_at_end,
     gradient_checkpointing=args.gradient_checkpointing,
+    remove_unused_columns=args.remove_unused_columns,
     report_to=args.report_to,
 )
 
@@ -163,17 +156,6 @@ training_args = TrainingArguments(
 #     lora_alpha=32,
 #     lora_dropout=0.1,
 # )
-
-# model = AutoModelForSequenceClassification.from_pretrained(
-#     args.model_name,
-#     num_labels=1,
-#     torch_dtype=torch.bfloat16,
-# )
-# model.config.use_cache = not args.gradient_checkpointing
-# count_parameters(model)
-
-# model = get_peft_model(model, peft_config)
-# model.print_trainable_parameters()
 
 
 # chosen vs. rejected形式でデータを取り出す(照合する=collate)クラスの定義
@@ -258,7 +240,7 @@ trainer = RewardTrainer(
 
 print("*" * 50)
 print(trainer.train_dataset)
-print(tokenizer.decode(trainer.train_dataset[60]["input_ids"]))
+print(tokenizer.decode(trainer.train_dataset[60]["input_ids_j"]))
 print("*" * 50)
 
 # 報酬モデルの学習
