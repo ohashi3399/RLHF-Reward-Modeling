@@ -1,0 +1,7 @@
+numpy
+datasets
+wandb
+huggingface_hub
+transformers
+bitsandbytes
+unsloth
