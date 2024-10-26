@@ -1,1 +1,1 @@
-python llmjp_1B_rm.py --model_name llm-jp/llm-jp-3-1.8b-instruct --dataset_size 0.25 --project RM-waka --name waka-2B-100k
+python llmjp_1B_rm.py --model_name llm-jp/llm-jp-3-1.8b-instruct --dataset_size 1.0 --project RM-waka --name RM-waka-2B-100k

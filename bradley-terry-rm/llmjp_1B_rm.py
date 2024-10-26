@@ -27,8 +27,8 @@ class ScriptArguments:
     local_rank: Optional[int] = field(default=-1)
     deepspeed: Optional[str] = field(default=None)
     # 学習対象のモデルとデータセット
-    model_name: Optional[str] = field(default="google/gemma-2b-it")
-    dataset_name: Optional[str] = field(default="hendrydong/preference_700K")
+    model_name: Optional[str] = field(default="llm-jp/llm-jp-3-1.8b-instruct")
+    dataset_name: Optional[str] = field(default="ryota39/open-preference-en-ja")
     num_eval: Optional[int] = field(default=1000)
     # ハイパーパラメータ
     random_state: Optional[int] = field(default=42)
@@ -41,7 +41,7 @@ class ScriptArguments:
     weight_decay: Optional[float] = field(default=0.0)
     # optim: Optional[str] = field(default="paged_adamw_32bit")
     # 学習戦略
-    num_labels: Optional[int] = field(default=1)
+    num_labels: Optional[int] = field(default=2)
     dataset_size: Optional[float] = field(default=0.25)
     max_seq_length: Optional[int] = field(default=4096)
     lr_scheduler_type: Optional[str] = field(default="cosine")
