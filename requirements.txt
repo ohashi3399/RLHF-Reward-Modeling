@@ -6,3 +6,5 @@ transformers
 evaluate
 bitsandbytes
 unsloth
+seaborn
+scikit-learn
