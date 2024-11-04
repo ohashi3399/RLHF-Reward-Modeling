@@ -1,22 +1,24 @@
 import os
 import wandb
 import numpy as np
-import torch, torch.nn as nn
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from huggingface_hub import login
 from datasets import load_dataset
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 from unsloth import FastLanguageModel, is_bfloat16_supported
 
-# from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (
-    # AutoModelForSequenceClassification,
+    PreTrainedModel,
     AutoTokenizer,
     HfArgumentParser,
     Trainer,
     TrainingArguments,
 )
 from transformers.utils import PaddingStrategy
+from transformers.trainer_pt_utils import nested_detach
 from utils import count_parameters
 
 
@@ -55,6 +57,7 @@ class ScriptArguments:
     load_best_model_at_end: Optional[bool] = field(default=True)
     log_dir: Optional[str] = field(default="./log")
     remove_unused_columns: Optional[bool] = field(default=False)
+    label_names: Optional[str] = field(default="idx")
     report_to: Optional[str] = field(default="wandb")
     # wandb設定
     project: Optional[str] = field(default="YOU FORGOT PROJECT!!!")
@@ -65,8 +68,8 @@ parser = HfArgumentParser(ScriptArguments)
 args = parser.parse_args_into_dataclasses()[0]
 
 out_dir = f"./{args.name}"
-wandb.init(project=args.project, name=args.name)
 wandb.login(os.environ.get("WANDB_API_KEY"))
+wandb.init(project=args.project, name=args.name)
 login(os.environ.get("HUGGINGFACE_API_KEY"), add_to_git_credential=False)
 
 model, tokenizer = FastLanguageModel.from_pretrained(
@@ -75,6 +78,7 @@ model, tokenizer = FastLanguageModel.from_pretrained(
     dtype=torch.bfloat16,
     load_in_4bit=False,
 )
+tokenizer.padding_side = "right"
 hidden_size = model.lm_head.in_features
 model.lm_head = nn.Linear(hidden_size, args.num_labels)
 model.config.use_cache = not args.gradient_checkpointing
@@ -102,16 +106,18 @@ def build_dataset(tokenizer, dataset_name):
         sample["attention_mask_k"] = tokenized_neg["attention_mask"]
         return sample
 
-    train_valid_dataset = load_dataset(dataset_name)
-    train_valid_dataset = train_valid_dataset.map(tokenize, num_proc=8)
-    num_ds = int(args.dataset_size * len(train_valid_dataset["train"]))
+    train_dataset = load_dataset(dataset_name)["train"].map(tokenize, num_proc=16)
+    valid_dataset = load_dataset(dataset_name)["valid"].map(tokenize, num_proc=16)
+    # train_valid_dataset = load_dataset(dataset_name)
+    # train_valid_dataset = train_valid_dataset.map(tokenize, num_proc=16)
+    # num_ds = int(args.dataset_size * len(train_valid_dataset["train"]))
 
-    train_dataset = train_valid_dataset["train"].select(
-        range(0, num_ds - args.num_eval)
-    )
-    valid_dataset = train_valid_dataset["train"].select(
-        range(num_ds - args.num_eval, num_ds)
-    )
+    # train_dataset = train_valid_dataset["train"].select(
+    #     range(0, num_ds - args.num_eval)
+    # )
+    # valid_dataset = train_valid_dataset["train"].select(
+    #     range(num_ds - args.num_eval, num_ds)
+    # )
 
     return train_dataset, valid_dataset
 
@@ -145,17 +151,9 @@ training_args = TrainingArguments(
     load_best_model_at_end=args.load_best_model_at_end,
     gradient_checkpointing=args.gradient_checkpointing,
     remove_unused_columns=args.remove_unused_columns,
+    label_names=args.label_names,
     report_to=args.report_to,
 )
-
-# enable if you want to train with lora
-# peft_config = LoraConfig(
-#     task_type=TaskType.SEQ_CLS,
-#     inference_mode=False,
-#     r=8,
-#     lora_alpha=32,
-#     lora_dropout=0.1,
-# )
 
 
 # chosen vs. rejected形式でデータを取り出す(照合する=collate)クラスの定義
@@ -182,6 +180,7 @@ class RewardDataCollatorWithPadding:
                     "attention_mask": feature["attention_mask_k"],
                 }
             )
+
         batch = self.tokenizer.pad(
             merged_features,
             padding=self.padding,
@@ -197,7 +196,6 @@ class RewardDataCollatorWithPadding:
         return batch
 
 
-# 検証データの評価指標の定義
 def compute_metrics(eval_pred):
     result = {}
     pos_predictions_scores = eval_pred.predictions[0]
@@ -209,7 +207,6 @@ def compute_metrics(eval_pred):
     return result
 
 
-# 報酬モデルの損失の定義
 class RewardTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         rewards = model(
@@ -224,6 +221,87 @@ class RewardTrainer(Trainer):
         if return_outputs:
             return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
         return loss
+
+    def prediction_step(
+        self,
+        model: Union[PreTrainedModel, nn.Module],
+        inputs: Dict[str, Union[torch.Tensor, Any]],
+        prediction_loss_only: bool,
+        ignore_keys: Optional[List[str]] = None,
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+        予測ステップの実装
+        数値の安定性を確保
+        """
+        # 1. 入力の準備
+        inputs = self._prepare_inputs(inputs)
+        if ignore_keys is None:
+            if hasattr(self.model, "config"):
+                ignore_keys = getattr(
+                    self.model.config, "keys_to_ignore_at_inference", []
+                )
+            else:
+                ignore_keys = []
+
+        if torch.any(torch.isnan(inputs["input_ids"])) or torch.any(
+            torch.isnan(inputs["attention_mask"])
+        ):
+            print("0 | NaN detected in inputs")
+
+        # 2. 予測の実行
+        with torch.no_grad():
+            try:
+                loss, logits_dict = self.compute_loss(
+                    model, inputs, return_outputs=True
+                )
+            except Exception as e:
+                print(f"Error during prediction: {e}")
+                return None, None, None
+
+        # 3. 損失のみの場合の処理
+        if prediction_loss_only:
+            return (loss, None, None)
+
+        # 4. 損失値のデタッチと検証
+        loss = loss.detach()
+        if torch.isnan(loss):
+            print("3 | NaN detected in prediction loss")
+            loss = torch.tensor(0.0, device=loss.device)
+
+        # 5. ロジットの処理
+        logits = tuple(v for k, v in logits_dict.items() if k not in ignore_keys)
+        logits = nested_detach(logits)
+
+        # 6. ロジットのスタック
+        try:
+            # スタック前のチェック
+            if any(torch.isnan(l).any() for l in logits):
+                print("4 | NaN detected in logits before stacking")
+                # NaNを0で置換
+                logits = tuple(torch.nan_to_num(l, 0.0) for l in logits)
+
+            stacked = torch.stack(logits)
+
+            # mean計算前のチェック
+            if torch.isnan(stacked).any():
+                print("5 | NaN detected  in logits after stacking")
+                stacked = torch.nan_to_num(stacked, 0.0)
+
+            mean_logits = stacked.mean(dim=2)
+
+            # softmax計算前のチェック
+            if torch.isnan(mean_logits).any():
+                print("6 | NaN detected in logits before softmax")
+                mean_logits = torch.nan_to_num(mean_logits, 0.0)
+
+            # 数値安定性のためのsoftmax
+            logits = F.softmax(mean_logits, dim=0).mT
+
+        except Exception as e:
+            print(f"Error during logits processing: {e}")
+            return loss, None, None
+
+        return loss, logits, None
 
 
 # 報酬モデルの学習器の定義
@@ -246,6 +324,7 @@ print("*" * 50)
 # 報酬モデルの学習
 trainer.train()
 trainer.save_model(out_dir)
+tokenizer.save_pretrained(out_dir)
 
 # HuggingFace にアップロード
 trainer.push_to_hub(out_dir)

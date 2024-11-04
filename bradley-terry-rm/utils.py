@@ -1,3 +1,24 @@
+from enum import Enum
+
+
+class ExplicitEnum(str, Enum):
+    """
+    Enum with more explicit error message for missing values.
+    """
+
+    @classmethod
+    def _missing_(cls, value):
+        raise ValueError(
+            f"{value} is not a valid {cls.__name__}, please select one of {list(cls._value2member_map_.keys())}"
+        )
+
+
+class IntervalStrategy(ExplicitEnum):
+    NO = "no"
+    STEPS = "steps"
+    EPOCH = "epoch"
+
+
 def count_parameters(model):
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_params_comma = f"{num_params:,}"

@@ -3,5 +3,6 @@ datasets
 wandb
 huggingface_hub
 transformers
+evaluate
 bitsandbytes
 unsloth
