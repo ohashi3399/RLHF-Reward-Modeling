@@ -9,6 +9,7 @@ from datasets import load_dataset
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union, Tuple
 from unsloth import FastLanguageModel, is_bfloat16_supported
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 from transformers import (
     PreTrainedModel,
@@ -29,7 +30,7 @@ class ScriptArguments:
     local_rank: Optional[int] = field(default=-1)
     deepspeed: Optional[str] = field(default=None)
     # 学習対象のモデルとデータセット
-    model_name: Optional[str] = field(default="llm-jp/llm-jp-3-1.8b-instruct")
+    model_name: Optional[str] = field(default="ryota39/RM-waka-2B-100k")
     dataset_name: Optional[str] = field(default="ryota39/preference-en-ja-100k")
     num_eval: Optional[int] = field(default=1000)
     # ハイパーパラメータ
@@ -49,7 +50,7 @@ class ScriptArguments:
     lr_scheduler_type: Optional[str] = field(default="cosine")
     gradient_checkpointing: Optional[bool] = field(default=True)
     eval_strategy: Optional[str] = field(default="steps")
-    eval_steps: Optional[int] = field(default=2)
+    eval_steps: Optional[int] = field(default=50)
     logging_strategy: Optional[str] = field(default="steps")
     logging_steps: Optional[int] = field(default=10)
     save_strategy: Optional[str] = field(default="steps")
@@ -72,16 +73,23 @@ out_dir = f"./{args.name}"
 wandb.init(project=args.project, name=args.name)
 login(os.environ.get("HUGGINGFACE_API_KEY"), add_to_git_credential=False)
 
-model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name=args.model_name,
+model = AutoModelForSequenceClassification.from_pretrained(
+    pretrained_model_name_or_path=args.model_name,
     max_seq_length=args.max_seq_length,
     dtype=torch.bfloat16,
-    load_in_4bit=False,
 )
+tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+
+# model, tokenizer = FastLanguageModel.from_pretrained(
+#     model_name=args.model_name,
+#     max_seq_length=args.max_seq_length,
+#     dtype=torch.bfloat16,
+#     load_in_4bit=False,
+# )
 tokenizer.padding_side = "right"
 hidden_size = model.lm_head.in_features
-model.lm_head = nn.Linear(hidden_size, args.num_labels, dtype=torch.bfloat16)
-model.config.use_cache = not args.gradient_checkpointing
+# model.lm_head = nn.Linear(hidden_size, args.num_labels, dtype=torch.bfloat16)
+# model.config.use_cache = not args.gradient_checkpointing
 print(model)
 count_parameters(model)
 
@@ -106,24 +114,13 @@ def build_dataset(tokenizer, dataset_name):
         sample["attention_mask_k"] = tokenized_neg["attention_mask"]
         return sample
 
-    train_dataset = load_dataset(dataset_name)["train"].map(tokenize, num_proc=16)
-    valid_dataset = load_dataset(dataset_name)["validation"].map(tokenize, num_proc=16)
-    # train_valid_dataset = load_dataset(dataset_name)
-    # train_valid_dataset = train_valid_dataset.map(tokenize, num_proc=16)
-    # num_ds = int(args.dataset_size * len(train_valid_dataset["train"]))
+    test_dataset = load_dataset(dataset_name)["test"].map(tokenize, num_proc=16)
 
-    # train_dataset = train_valid_dataset["train"].select(
-    #     range(0, num_ds - args.num_eval)
-    # )
-    # valid_dataset = train_valid_dataset["train"].select(
-    #     range(num_ds - args.num_eval, num_ds)
-    # )
-
-    return train_dataset, valid_dataset
+    return test_dataset
 
 
-train_dataset, valid_dataset = build_dataset(tokenizer, args.dataset_name)
-print(f"Training set: {len(train_dataset)} | Validation set: {len(valid_dataset)}")
+test_dataset = build_dataset(tokenizer, args.dataset_name)
+print(f"Test set: {len(test_dataset)}")
 
 # Trainerの定義(学習時の引数の指定)
 training_args = TrainingArguments(
@@ -196,101 +193,15 @@ class RewardDataCollatorWithPadding:
         return batch
 
 
-# class RewardTrainer(Trainer):
-#     def compute_loss(self, model, inputs, return_outputs=False):
-#         rewards = model(
-#             input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"]
-#         )[0]
-#         bsz = rewards.size(0)
-#         jidx = torch.arange(0, bsz, 2)
-#         kidx = jidx + 1
-#         rewards_j = rewards[jidx]
-#         rewards_k = rewards[kidx]
-#         loss = -nn.functional.logsigmoid(rewards_j - rewards_k).mean()
-#         if return_outputs:
-#             return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
-#         return loss
-
-#     def prediction_step(
-#         self,
-#         model: Union[PreTrainedModel, nn.Module],
-#         inputs: Dict[str, Union[torch.Tensor, Any]],
-#         prediction_loss_only: bool,
-#         ignore_keys: Optional[List[str]] = None,
-#     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
-#         """
-#         予測ステップの実装
-#         数値の安定性を確保
-#         """
-#         # 1. 入力の準備
-#         inputs = self._prepare_inputs(inputs)
-#         if ignore_keys is None:
-#             if hasattr(self.model, "config"):
-#                 ignore_keys = getattr(
-#                     self.model.config, "keys_to_ignore_at_inference", []
-#                 )
-#             else:
-#                 ignore_keys = []
-
-#         if torch.any(torch.isnan(inputs["input_ids"])) or torch.any(
-#             torch.isnan(inputs["attention_mask"])
-#         ):
-#             print("0 | NaN detected in inputs")
-
-#         # 2. 予測の実行
-#         with torch.no_grad():
-#             try:
-#                 loss, logits_dict = self.compute_loss(
-#                     model, inputs, return_outputs=True
-#                 )
-#             except Exception as e:
-#                 print(f"Error during prediction: {e}")
-#                 return None, None, None
-
-#         # 3. 損失のみの場合の処理
-#         if prediction_loss_only:
-#             return (loss, None, None)
-
-#         # 4. 損失値のデタッチと検証
-#         loss = loss.detach()
-#         if torch.isnan(loss):
-#             print("3 | NaN detected in prediction loss")
-#             loss = torch.tensor(0.0, device=loss.device)
-
-#         # 5. ロジットの処理
-#         logits = tuple(v for k, v in logits_dict.items() if k not in ignore_keys)
-#         logits = nested_detach(logits)
-
-#         # 6. ロジットのスタック
-#         try:
-#             # スタック前のチェック
-#             if any(torch.isnan(l).any() for l in logits):
-#                 print("4 | NaN detected in logits before stacking")
-#                 # NaNを0で置換
-#                 logits = tuple(torch.nan_to_num(l, 0.0) for l in logits)
-
-#             stacked = torch.stack(logits)
-
-#             # mean計算前のチェック
-#             if torch.isnan(stacked).any():
-#                 print("5 | NaN detected  in logits after stacking")
-#                 stacked = torch.nan_to_num(stacked, 0.0)
-
-#             mean_logits = stacked.mean(dim=2)
-
-#             # softmax計算前のチェック
-#             if torch.isnan(mean_logits).any():
-#                 print("6 | NaN detected in logits before softmax")
-#                 mean_logits = torch.nan_to_num(mean_logits, 0.0)
-
-#             # 数値安定性のためのsoftmax
-#             logits = F.softmax(mean_logits, dim=0).mT
-
-#         except Exception as e:
-#             print(f"Error during logits processing: {e}")
-#             return loss, None, None
-
-#         return loss, logits, None
+def compute_metrics(eval_pred):
+    result = {}
+    pos_predictions_scores = eval_pred.predictions[0]
+    neg_predictions_scores = eval_pred.predictions[1]
+    # We assume that the first sample is preferred by default in groundtruth
+    result["accuracy"] = np.sum(pos_predictions_scores > neg_predictions_scores) / len(
+        pos_predictions_scores
+    )
+    return result
 
 
 class RewardTrainer(Trainer):
@@ -303,16 +214,11 @@ class RewardTrainer(Trainer):
         kidx = jidx + 1
         rewards_j = rewards[jidx]
         rewards_k = rewards[kidx]
-
         loss = -nn.functional.logsigmoid(rewards_j - rewards_k).mean()
         if return_outputs:
-            return loss, {
-                "rewards_j": rewards_j.detach(),
-                "rewards_k": rewards_k.detach(),
-            }
+            return loss, {"rewards_j": rewards_j, "rewards_k": rewards_k}
         return loss
 
-    # RuntimeError: Sizes of tensors must match except in dimension 0. Expected size 129 but got size 130 for tensor number 1 in the list.
     def prediction_step(
         self,
         model: Union[PreTrainedModel, nn.Module],
@@ -320,48 +226,87 @@ class RewardTrainer(Trainer):
         prediction_loss_only: bool,
         ignore_keys: Optional[List[str]] = None,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+        予測ステップの実装
+        数値の安定性を確保
+        """
+        # 1. 入力の準備
         inputs = self._prepare_inputs(inputs)
+        if ignore_keys is None:
+            if hasattr(self.model, "config"):
+                ignore_keys = getattr(
+                    self.model.config, "keys_to_ignore_at_inference", []
+                )
+            else:
+                ignore_keys = []
 
+        if torch.any(torch.isnan(inputs["input_ids"])) or torch.any(
+            torch.isnan(inputs["attention_mask"])
+        ):
+            print("0 | NaN detected in inputs")
+
+        # 2. 予測の実行
         with torch.no_grad():
-            loss, logits_dict = self.compute_loss(model, inputs, return_outputs=True)
+            try:
+                loss, logits_dict = self.compute_loss(
+                    model, inputs, return_outputs=True
+                )
+            except Exception as e:
+                print(f"Error during prediction: {e}")
+                return None, None, None
 
+        # 3. 損失のみの場合の処理
         if prediction_loss_only:
             return (loss, None, None)
 
+        # 4. 損失値のデタッチと検証
         loss = loss.detach()
-        rewards_j = logits_dict["rewards_j"]
-        rewards_k = logits_dict["rewards_k"]
-        print(f"rewards_j: {rewards_j.size()}\nrewards_k: {rewards_k.size()}\n")
+        if torch.isnan(loss):
+            print("3 | NaN detected in prediction loss")
+            loss = torch.tensor(0.0, device=loss.device)
 
-        # Tensorのまま返す（numpy配列に変換しない）
-        predictions = torch.stack([rewards_j, rewards_k])
+        # 5. ロジットの処理
+        logits = tuple(v for k, v in logits_dict.items() if k not in ignore_keys)
+        logits = nested_detach(logits)
 
-        return (loss, predictions, None)
+        # 6. ロジットのスタック
+        try:
+            # スタック前のチェック
+            if any(torch.isnan(l).any() for l in logits):
+                print("4 | NaN detected in logits before stacking")
+                # NaNを0で置換
+                logits = tuple(torch.nan_to_num(l, 0.0) for l in logits)
 
+            stacked = torch.stack(logits)
 
-def compute_metrics(eval_pred):
-    result = {}
-    # 予測値をnumpy配列に変換
-    predictions = eval_pred.predictions
-    if isinstance(predictions, torch.Tensor):
-        predictions = predictions.cpu().numpy()
+            # mean計算前のチェック
+            if torch.isnan(stacked).any():
+                print("5 | NaN detected  in logits after stacking")
+                stacked = torch.nan_to_num(stacked, 0.0)
 
-    pos_predictions_scores = predictions[0]  # 最初の要素が rewards_j
-    neg_predictions_scores = predictions[1]  # 2番目の要素が rewards_k
+            mean_logits = stacked.mean(dim=2)
 
-    # accuracyの計算
-    result["accuracy"] = np.sum(pos_predictions_scores > neg_predictions_scores) / len(
-        pos_predictions_scores
-    )
-    return result
+            # softmax計算前のチェック
+            if torch.isnan(mean_logits).any():
+                print("6 | NaN detected in logits before softmax")
+                mean_logits = torch.nan_to_num(mean_logits, 0.0)
+
+            # 数値安定性のためのsoftmax
+            logits = F.softmax(mean_logits, dim=0).mT
+
+        except Exception as e:
+            print(f"Error during logits processing: {e}")
+            return loss, None, None
+
+        return loss, logits, None
 
 
 # 報酬モデルの学習器の定義
 trainer = RewardTrainer(
     model=model,
     args=training_args,
-    train_dataset=train_dataset,
-    eval_dataset=valid_dataset,
+    # train_dataset=train_dataset,
+    eval_dataset=test_dataset,
     compute_metrics=compute_metrics,
     data_collator=RewardDataCollatorWithPadding(
         tokenizer=tokenizer, max_length=args.max_seq_length
@@ -369,15 +314,15 @@ trainer = RewardTrainer(
 )
 
 print("*" * 50)
-print(trainer.train_dataset)
-print(tokenizer.decode(trainer.train_dataset[60]["input_ids_j"]))
+print(trainer.test_dataset)
+print(tokenizer.decode(trainer.test_dataset[10]["input_ids_j"]))
 print("*" * 50)
 
 # 報酬モデルの学習
-trainer.train()
-trainer.save_model(out_dir)
-tokenizer.save_pretrained(out_dir)
+trainer.evaluate()
+# trainer.save_model(out_dir)
+# tokenizer.save_pretrained(out_dir)
 
-# HuggingFace にアップロード
-trainer.push_to_hub(out_dir)
-print(f"Model successfully merged and uploaded to {out_dir}")
+# # HuggingFace にアップロード
+# trainer.push_to_hub(out_dir)
+# print(f"Model successfully merged and uploaded to {out_dir}")
